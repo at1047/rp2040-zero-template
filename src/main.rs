@@ -6,8 +6,10 @@
 #![no_std]
 #![no_main]
 
-use core::iter::once;
+// use core::iter::once;
 use embedded_hal::delay::DelayNs;
+use embedded_hal::digital::OutputPin;
+use embedded_hal::digital::InputPin;
 use panic_halt as _;
 use smart_leds::{brightness, SmartLedsWrite, RGB8};
 use waveshare_rp2040_zero::entry;
@@ -70,32 +72,18 @@ fn main() -> ! {
         timer.count_down(),
     );
 
+    let mut in_pin = pins.gp15.into_pull_down_input();
+
     // Infinite colour wheel loop
-    let mut n: u8 = 128;
+    let on : RGB8 = (255, 255, 255).into();
+    let off : RGB8 = (0, 0, 0).into();
     let mut timer = timer; // rebind to force a copy of the timer
+
     loop {
-        ws.write(brightness(once(wheel(n)), 32)).unwrap();
-        n = n.wrapping_add(1);
-
-        timer.delay_ms(25);
-    }
-}
-
-/// Convert a number from `0..=255` to an RGB color triplet.
-///
-/// The colours are a transition from red, to green, to blue and back to red.
-fn wheel(mut wheel_pos: u8) -> RGB8 {
-    wheel_pos = 255 - wheel_pos;
-    if wheel_pos < 85 {
-        // No green in this sector - red and blue only
-        (255 - (wheel_pos * 3), 0, wheel_pos * 3).into()
-    } else if wheel_pos < 170 {
-        // No red in this sector - green and blue only
-        wheel_pos -= 85;
-        (0, wheel_pos * 3, 255 - (wheel_pos * 3)).into()
-    } else {
-        // No blue in this sector - red and green only
-        wheel_pos -= 170;
-        (wheel_pos * 3, 255 - (wheel_pos * 3), 0).into()
+        if in_pin.is_low().unwrap() {
+            ws.write([on].iter().copied()).unwrap();
+        } else {
+            ws.write([off].iter().copied()).unwrap();
+        }
     }
 }
