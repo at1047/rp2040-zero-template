@@ -21,10 +21,15 @@ use waveshare_rp2040_zero::{
         timer::Timer,
         watchdog::Watchdog,
         Sio,
+        usb::UsbBus,
     },
     Pins, XOSC_CRYSTAL_FREQ,
 };
 use ws2812_pio::Ws2812;
+use usbd_serial::{USB_CLASS_CDC, SerialPort};
+use usb_device::device::{UsbVidPid, UsbDeviceBuilder};
+use usb_device::class_prelude::UsbBusAllocator;
+
 
 /// Entry point to our bare-metal application.
 ///
@@ -72,6 +77,22 @@ fn main() -> ! {
         timer.count_down(),
     );
 
+    let usb_bus = UsbBusAllocator::new(UsbBus::new(
+        pac.USBCTRL_REGS,
+        pac.USBCTRL_DPRAM,
+        clocks.usb_clock,
+        true,
+        &mut pac.RESETS,
+    ));
+// Use the usb_bus as usual.
+
+    let mut serial = SerialPort::new(&usb_bus);
+
+    let mut usb_dev = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x16c0, 0x27dd))
+        //.product("Serial port")
+        .device_class(USB_CLASS_CDC)
+        .build();
+
     let mut in_pin = pins.gp15.into_pull_down_input();
 
     // Infinite colour wheel loop
@@ -79,11 +100,34 @@ fn main() -> ! {
     let off : RGB8 = (0, 0, 0).into();
     let mut timer = timer; // rebind to force a copy of the timer
 
+    // let mut delay_ms = |ms: u32, serial: &mut SerialPort<UsbBus>| {
+    //     delay.start(ms.millis());
+    //     let _ = loop {
+    //         match delay.wait() {
+    //             Err(nb::Error::Other(e)) => break Err(e),
+    //             Err(nb::Error::WouldBlock) => {
+    //                 usb_dev.poll(&mut [&mut serial])
+    //             },
+    //             Ok(x) => break Ok(x),
+    //         };
+    //     };
+    // };
+
     loop {
-        if in_pin.is_low().unwrap() {
-            ws.write([on].iter().copied()).unwrap();
-        } else {
-            ws.write([off].iter().copied()).unwrap();
+        if !usb_dev.poll(&mut [&mut serial]) {
+            if !in_pin.is_low().unwrap() {
+                let _ = serial.write(b"Hello world!\r\n");
+                timer.delay_ms(500);
+            }
         }
+
+        // delay_ms(500, &mut serial);
+
+        // timer.delay_ms(500);
+        // if in_pin.is_low().unwrap() {
+        //     ws.write([on].iter().copied()).unwrap();
+        // } else {
+        //     ws.write([off].iter().copied()).unwrap();
+        // }
     }
 }
