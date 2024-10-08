@@ -8,45 +8,51 @@
 
 // use core::iter::once;
 use embedded_hal::delay::DelayNs;
-use embedded_hal::digital::OutputPin;
+// use embedded_hal::digital::OutputPin;
 use embedded_hal::digital::InputPin;
+// extern crate alloc;
+// use alloc::vec::Vec;
 
-
-extern crate alloc;
-use alloc::vec::Vec;
-use waveshare_rp2040_zero::rp2040_hal::fugit::ExtU32::{millis};
+use fugit::ExtU32;
+use nb;
 
 use embedded_alloc::LlffHeap as Heap;
 
 use panic_halt as _;
-use smart_leds::{brightness, SmartLedsWrite, RGB8};
+// use smart_leds::{brightness, SmartLedsWrite, RGB8};
 use waveshare_rp2040_zero::entry;
-use waveshare_rp2040_zero::{hal, Pins, XOSC_CRYSTAL_FREQ};
+// use waveshare_rp2040_zero::{hal, Pins, XOSC_CRYSTAL_FREQ};
+// use embedded_time::Timer;
 
-// use waveshare_rp2040_zero::{
-//     hal::{
-//         clocks::{init_clocks_and_plls, Clock},
-//         pac,
-//         pio::PIOExt,
-//         timer::{Timer, CountDown},
-//         watchdog::Watchdog,
-//         Sio,
-//         usb::UsbBus,
-//         fugit::ExtU32,
-//     },
-//     Pins, XOSC_CRYSTAL_FREQ,
-// };
-use ws2812_pio::Ws2812;
+use waveshare_rp2040_zero::{
+    hal::{
+        clocks::{init_clocks_and_plls, Clock},
+        pac,
+        pio::PIOExt,
+        timer::Timer,
+        watchdog::Watchdog,
+        Sio,
+        usb::UsbBus,
+    },
+    Pins, XOSC_CRYSTAL_FREQ,
+};
+
+use embedded_hal_02::timer::{CountDown, Cancel};
+
+
+
+// use ws2812_pio::Ws2812;
 use usbd_serial::{USB_CLASS_CDC, SerialPort};
 use usbd_hid::descriptor::generator_prelude::*;
 use usbd_hid::descriptor::KeyboardReport;
 use usbd_hid::hid_class::HIDClass;
 use usb_device::device::{UsbVidPid, UsbDeviceBuilder};
 use usb_device::class_prelude::UsbBusAllocator;
+use usb_device::UsbError;
 
 
-#[global_allocator]
-static HEAP: Heap = Heap::empty();
+// #[global_allocator]
+// static HEAP: Heap = Heap::empty();
 
 /// Entry point to our bare-metal application.
 ///
@@ -81,18 +87,18 @@ fn main() -> ! {
         &mut pac.RESETS,
     );
 
-    let timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
+    let mut timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
 
     // Configure the addressable LED
     let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
-    let mut ws = Ws2812::new(
-        // The onboard NeoPixel is attached to GPIO pin #16 on the Waveshare RP2040-Zero.
-        pins.neopixel.into_function(),
-        &mut pio,
-        sm0,
-        clocks.peripheral_clock.freq(),
-        timer.count_down(),
-    );
+    // let mut ws = Ws2812::new(
+    //     // The onboard NeoPixel is attached to GPIO pin #16 on the Waveshare RP2040-Zero.
+    //     pins.neopixel.into_function(),
+    //     &mut pio,
+    //     sm0,
+    //     clocks.peripheral_clock.freq(),
+    //     timer.count_down(),
+    // );
 
     let usb_bus = UsbBusAllocator::new(UsbBus::new(
         pac.USBCTRL_REGS,
@@ -109,18 +115,17 @@ fn main() -> ! {
 
     let mut usb_dev = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x16c0, 0x27dd))
         //.product("Serial port")
-        // .device_class(USB_CLASS_CDC)
-        .device_class(0x00)
-        .composite_with_iads()
+        .device_class(USB_CLASS_CDC)
+        // .device_class(0x00)
+        // .composite_with_iads()
         .build();
 
     let mut in_pin = pins.gp15.into_pull_down_input();
 
     // Infinite colour wheel loop
-    let on : RGB8 = (255, 255, 255).into();
-    let off : RGB8 = (0, 0, 0).into();
-    let mut timer = timer; // rebind to force a copy of the timer
-    let mut delay = timer.count_down();
+    // let on : RGB8 = (255, 255, 255).into();
+    // let off : RGB8 = (0, 0, 0).into();
+    // let timer = timer; // rebind to force a copy of the timer
 
     // let mut delay_ms = |ms: u32, serial: &mut SerialPort<UsbBus>| {
     //     delay.start(ms.millis());
@@ -134,32 +139,41 @@ fn main() -> ! {
     //         };
     //     };
     // };
-    {
-        use core::mem::MaybeUninit;
-        const HEAP_SIZE: usize = 1024;
-        static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
-        unsafe { HEAP.init(HEAP_MEM.as_ptr() as usize, HEAP_SIZE) }
-    }
+    // {
+    //     use core::mem::MaybeUninit;
+    //     const HEAP_SIZE: usize = 1024;
+    //     static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
+    //     unsafe { HEAP.init(HEAP_MEM.as_ptr() as usize, HEAP_SIZE) }
+    // }
 
 
-    let mut input_count_down = timer.count_down();
-    input_count_down.start(100_u32.millis());
+    // let mut delay = timer.count_down();
+
+    // let mut delay_ms = |ms: u32| {
+    //     delay.start(ms.millis());
+    //     let _ = nb::block!(delay.wait());
+    // };
+    // let mut pin_state = !in_pin.is_low().unwrap();
 
     loop {
         // let mut scan = 0;
-        if input_count_down.wait().is_ok() {
-            continue;
-        }
+        // delay.start(100.millis());
+        // let _ = nb::block!(delay.wait());
+        // pin_state = !in_pin.is_low().unwrap();
 
-        if !usb_dev.poll(&mut [&mut serial, &mut hid]) {
-            let pin_state = !in_pin.is_low().unwrap();
+        // if !usb_dev.poll(&mut [&mut serial, &mut hid]) {
+        //     continue;
+        // }
 
-            if pin_state {
-                let _ = serial.write(b"Hello world!\r\n");
-                //     scan = 20;
-                // timer.delay_ms(500);
-            }
-        }
+        // if pin_state {
+        // match serial.write(b"Hello world!\r\n") {
+        //     Ok(count) => {
+        //         // count bytes were written
+        //     },
+        //     Err(UsbError::WouldBlock) => {},// No data could be written (buffers full)
+        //     Err(err) => {},// An error occurred
+        // };
+        // }
 
 
         // let _ = hid.push_input(&KeyboardReport {
@@ -170,7 +184,7 @@ fn main() -> ! {
         // });
 
         // const MSG: &[u8] = "Hello, world!\r\n".as_bytes();
-        // let _ = serial.write(format!("scanning {scan}").as_bytes());
+        let _ = serial.write(b"hello world");
 
         // let _ = hid.push_input(&KeyboardReport {
         //     modifier: 0,
@@ -179,7 +193,7 @@ fn main() -> ! {
         //     keycodes: [scan, 0, 0, 0, 0, 0]
         // });
 
-        // timer.delay_ms(10);
+        timer.delay_ms(100);
     }
 
     // delay_ms(500, &mut serial);
